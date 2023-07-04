@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"os"
+	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gocolly/colly"
 )
@@ -13,27 +15,21 @@ func getPage(page string) string {
 	return "https://www.majalah.com/?allclassifieds.page." + page
 }
 
-type Iklan struct {
-	Title   string
-	Url     string
-	Content string
-	Comment []Comment
-}
-
-type Comment struct {
-	Content  string
-	Username string
-	DateTime string
-}
-
 func main() {
+
+	filename := "majalah.txt"
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		log.Fatalf("Cannot create file %q: %s\n", filename, err)
+		return
+	}
+
+	defer f.Close()
 
 	c := colly.NewCollector(colly.AllowedDomains("www.majalah.com", "majalah.com"))
 
 	// Create another collector to scrape iklan details
 	iklanCollector := c.Clone()
-
-	iklanList := make([]Iklan, 0)
 
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Println("Visiting", r.URL)
@@ -55,36 +51,26 @@ func main() {
 		h.ForEach("div", func(i int, h *colly.HTMLElement) {
 
 			if checkUsableText(h.Text) && i != 0 && i != 1 {
-				fmt.Println("====" + strconv.Itoa(i) + "====")
-				fmt.Println(h.Text)
-				fmt.Println("@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@")
+				commentContent := removeUsernameDateTime(h.Text)
+				f.WriteString(commentContent)
+				f.WriteString("\n@@@~~~@@@\n")
 			}
 		})
-		// iklanList[len(iklanList)-1].Content = h.Text
-		// commentList := make([]Comment, 0)
-		// comment := Comment{}
-		// comment.Content =
-
-		// #contentLeft > div:nth-child(1) > div:nth-child(4)
-		// #contentLeft > div:nth-child(1) > div:nth-child(5)
 	})
 
 	c.OnHTML("#contentLeft > div > b > a", func(h *colly.HTMLElement) {
-		iklan := Iklan{}
 
-		iklan.Title = h.Text
-		iklan.Url = h.Attr("href")
+		// title := h.Text
+		url := h.Attr("href")
 
-		iklanCollector.Visit(h.Attr("href"))
-		time.Sleep(2 * time.Second)
+		iklanCollector.Visit(url)
+		// time.Sleep(2 * time.Second)
 
-		// fmt.Println(h.Text)
-		// fmt.Println(h.Attr("href"))
-
-		iklanList = append(iklanList, iklan)
 	})
 
-	c.Visit(getPage("3000"))
+	for i := 1; i < 10000; i++ {
+		c.Visit(getPage(strconv.Itoa(i)))
+	}
 
 	// iklanJson := json.NewEncoder(os.Stdout)
 	// iklanJson.SetIndent("", "  ")
@@ -92,45 +78,35 @@ func main() {
 }
 
 func checkUsableText(s string) bool {
-	if strings.Contains(s, "Your Comment: Max 1000 characters.  Login Email: Password:") {
-		return false
+	unwantedText := []string{"Your Comment: Max 1000 characters.  Login Email: Password:",
+		"function RotateImages",
+		"Your Comment: Max 1000 characters.",
+		"Disclaimer. Messages posted to our forum are solely the opinion and responsibility of the person posting the message.",
+		"1. NEVER give UPFRONT PAYMENT (deposit) to any Money Lenders. Upfront Payment is 100% scam!",
+		"Login Email:",
+		"Password:",
+		"(Total ",
+		"Smartphone Biasa Kini Boleh Digunakan untuk Membuat Video Berkualiti Media Sosial",
 	}
 
-	if strings.Contains(s, "function RotateImages") {
-		return false
+	for _, v := range unwantedText {
+		if strings.Contains(s, v) {
+			return false
+		}
 	}
 
-	if strings.Contains(s, "Your Comment: Max 1000 characters.") {
-		return false
-	}
+	return len(strings.TrimSpace(s)) >= 2
+}
 
-	if strings.Contains(s, "Disclaimer. Messages posted to our forum are solely the opinion and responsibility of the person posting the message.") {
-		return false
-	}
+func removeUsernameDateTime(s string) string {
+	pattern := `(?m)^.*(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s\d{1,2}\/(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\/\d{4},\s\d{1,2}:\d{2}(?:am|pm)`
 
-	if strings.Contains(s, "1. NEVER give UPFRONT PAYMENT (deposit) to any Money Lenders. Upfront Payment is 100% scam!") {
-		return false
-	}
+	// Compile the regular expression
+	regex := regexp.MustCompile(pattern)
 
-	if strings.Contains(s, "Login Email:") {
-		return false
+	if regex.MatchString(s) {
+		return regex.ReplaceAllString(s, "")
+	} else {
+		return s
 	}
-
-	if strings.Contains(s, "Password:") {
-		return false
-	}
-
-	if strings.Contains(s, "(Total ") {
-		return false
-	}
-
-	if strings.Contains(s, "Smartphone Biasa Kini Boleh Digunakan untuk Membuat Video Berkualiti Media Sosial") {
-		return false
-	}
-
-	if len(strings.TrimSpace(s)) < 2 {
-		return false
-	}
-
-	return true
 }
