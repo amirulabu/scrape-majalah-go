@@ -7,8 +7,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/queue"
 )
 
 func getPage(page string) string {
@@ -28,23 +30,28 @@ func main() {
 
 	c := colly.NewCollector(colly.AllowedDomains("www.majalah.com", "majalah.com"))
 
+	c.SetRequestTimeout(120 * time.Second)
+
 	// Create another collector to scrape iklan details
 	iklanCollector := c.Clone()
 
+	iklanCollector.SetRequestTimeout(120 * time.Second)
+
 	c.OnRequest(func(r *colly.Request) {
+		fmt.Println("")
 		fmt.Println("Visiting", r.URL)
 	})
 
 	c.OnError(func(_ *colly.Response, err error) {
-		fmt.Println("Something went wrong:", err)
+		handleErr(err)
 	})
 
 	iklanCollector.OnRequest(func(r *colly.Request) {
-		fmt.Println("Visiting", r.URL)
+		fmt.Print(".")
 	})
 
 	iklanCollector.OnError(func(_ *colly.Response, err error) {
-		fmt.Println("Something went wrong:", err)
+		handleErr(err)
 	})
 
 	iklanCollector.OnHTML("#contentLeft > div", func(h *colly.HTMLElement) {
@@ -64,17 +71,33 @@ func main() {
 		url := h.Attr("href")
 
 		iklanCollector.Visit(url)
-		// time.Sleep(2 * time.Second)
+		time.Sleep(2 * time.Second)
 
 	})
 
-	for i := 1; i < 10000; i++ {
-		c.Visit(getPage(strconv.Itoa(i)))
+	q, _ := queue.New(
+		10, // Number of consumer threads
+		&queue.InMemoryQueueStorage{MaxSize: 1000000}, // Use default queue storage
+	)
+
+	// 9574 last page
+	for i := 8109; i < 9574; i++ {
+
+		q.AddURL(getPage(strconv.Itoa(i)))
+
+		// c.Visit(getPage(strconv.Itoa(i)))
 	}
 
 	// iklanJson := json.NewEncoder(os.Stdout)
 	// iklanJson.SetIndent("", "  ")
 	// iklanJson.Encode(iklanList)
+	q.Run(c)
+}
+
+func handleErr(err error) {
+	fmt.Println("")
+	fmt.Println("Something went wrong:", err)
+	panic(err)
 }
 
 func checkUsableText(s string) bool {
