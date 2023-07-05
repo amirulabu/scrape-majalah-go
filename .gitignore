@@ -21,4 +21,4 @@ vendor/
 go.work
 
 # scrapping result
-majalah.txt
+majalah*.txt
