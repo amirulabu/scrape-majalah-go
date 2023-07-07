@@ -13,12 +13,17 @@ import (
 	"github.com/gocolly/colly/queue"
 )
 
+// if just started scrapping, start from 0
+const START_PAGE = 8448
+
+// 9574 last page - https://www.majalah.com/?allclassifieds.page.9574
+const END_PAGE = 9574
+
 func getPage(page string) string {
 	return "https://www.majalah.com/?allclassifieds.page." + page
 }
 
 func main() {
-
 	filename := "majalah.txt"
 	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
@@ -36,6 +41,18 @@ func main() {
 	iklanCollector := c.Clone()
 
 	iklanCollector.SetRequestTimeout(120 * time.Second)
+
+	c.Limit(&colly.LimitRule{
+		DomainGlob:  "*majalah.*",
+		Parallelism: 2,
+		RandomDelay: 5 * time.Second,
+	})
+
+	iklanCollector.Limit(&colly.LimitRule{
+		DomainGlob:  "*majalah.*",
+		Parallelism: 2,
+		RandomDelay: 5 * time.Second,
+	})
 
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Println("")
@@ -80,8 +97,7 @@ func main() {
 		&queue.InMemoryQueueStorage{MaxSize: 1000000}, // Use default queue storage
 	)
 
-	// 9574 last page
-	for i := 8109; i < 9574; i++ {
+	for i := START_PAGE; i <= END_PAGE; i++ {
 
 		q.AddURL(getPage(strconv.Itoa(i)))
 
@@ -101,7 +117,8 @@ func handleErr(err error) {
 }
 
 func checkUsableText(s string) bool {
-	unwantedText := []string{"Your Comment: Max 1000 characters.  Login Email: Password:",
+	unwantedText := []string{
+		"Your Comment: Max 1000 characters.  Login Email: Password:",
 		"function RotateImages",
 		"Your Comment: Max 1000 characters.",
 		"Disclaimer. Messages posted to our forum are solely the opinion and responsibility of the person posting the message.",
