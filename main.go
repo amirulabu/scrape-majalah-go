@@ -9,12 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flowchartsman/retry"
 	"github.com/gocolly/colly"
 	"github.com/gocolly/colly/queue"
 )
 
 // if just started scrapping, start from 0
-const START_PAGE = 8448
+const START_PAGE = 8909
 
 // 9574 last page - https://www.majalah.com/?allclassifieds.page.9574
 const END_PAGE = 9574
@@ -59,21 +60,17 @@ func main() {
 		fmt.Println("Visiting", r.URL)
 	})
 
-	c.OnError(func(_ *colly.Response, err error) {
-		handleErr(err)
-	})
+	c.OnError(handleErr)
 
 	iklanCollector.OnRequest(func(r *colly.Request) {
 		fmt.Print(".")
 	})
 
-	iklanCollector.OnError(func(_ *colly.Response, err error) {
-		handleErr(err)
-	})
+	iklanCollector.OnError(handleErr)
 
 	iklanCollector.OnHTML("#contentLeft > div", func(h *colly.HTMLElement) {
 		h.ForEach("div", func(i int, h *colly.HTMLElement) {
-
+			// time.Sleep(2 * time.Second)
 			if checkUsableText(h.Text) && i != 0 && i != 1 {
 				commentContent := removeUsernameDateTime(h.Text)
 				f.WriteString(commentContent)
@@ -88,12 +85,12 @@ func main() {
 		url := h.Attr("href")
 
 		iklanCollector.Visit(url)
-		time.Sleep(2 * time.Second)
+		// time.Sleep(2 * time.Second)
 
 	})
 
 	q, _ := queue.New(
-		10, // Number of consumer threads
+		20, // Number of consumer threads
 		&queue.InMemoryQueueStorage{MaxSize: 1000000}, // Use default queue storage
 	)
 
@@ -110,10 +107,24 @@ func main() {
 	q.Run(c)
 }
 
-func handleErr(err error) {
-	fmt.Println("")
-	fmt.Println("Something went wrong:", err)
-	panic(err)
+func handleErr(r *colly.Response, err error) {
+
+	retrier := retry.NewRetrier(10, time.Second, 10*time.Second)
+
+	error := retrier.Run(func() error {
+		fmt.Println("Something went wrong:", err)
+		fmt.Println("Retrying...")
+		return r.Request.Retry()
+	})
+
+	if error != nil {
+		fmt.Println("")
+		fmt.Println("Something went wrong:", err)
+		fmt.Println("Response:", r.StatusCode)
+		panic(err)
+	}
+
+	fmt.Println("Retry success")
 }
 
 func checkUsableText(s string) bool {
